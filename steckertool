@@ -1,0 +1,245 @@
+#!/bin/bash
+
+TR=`which tr 2>/dev/null`
+AWK=`which awk 2>/dev/null`
+SED=`which sed 2>/dev/null`
+CUT=`which cut 2>/dev/null`
+CURL=`which curl 2>/dev/null`
+SORT=`which sort 2>/dev/null`
+UNIQ=`which uniq 2>/dev/null`
+GREP=`which grep 2>/dev/null`
+TAIL=`which tail 2>/dev/null`
+FGREP=`which fgrep 2>/dev/null`
+EGREP=`which egrep 2>/dev/null`
+
+PASSWORD='admin'
+HOST='192.168.0.11'
+APPNAME=`basename $0`
+SOCKET_DATA=''
+ARGS_TO_EXCLUDE=0
+SOCKET_LIST=''
+
+TOP_PID="$$"
+trap "exit 253" USR1
+
+
+if [ -z "$TR" ]; then
+		echo -e "Error:\tthe directories listed in the \$PATH variable don't seem to contain the 'tr' executable.\n\tPlease check if it is properly installed!" >&2
+		exit 250
+fi
+
+for i in AWK SED CUT CURL SORT UNIQ GREP FGREP EGREP; do
+		if [ -z $( eval "echo \$$i" ) ]; then
+				ename=`tr [:upper:] [:lower:] <<< "$i"`
+				echo -e "Error:\tthe directories listed in the \$PATH variable don't seem to contain the '$ename' executable.\n\tPlease check if it is properly installed!" >&2
+				exit 250
+		fi
+done
+
+
+help() {
+        echo "Usage: $APPNAME [-h] [-H HOSTNAME|IP-ADDRESS] [-p PASSWORD] <query|switchon|switchoff|flip> <[LIST OF NUMBERS] | all | name [NAME]>"
+}
+
+
+map_socket() {
+        data=`$CURL --silent --url "http://${HOST}/login.cgi" --data-urlencode "loginpass=${PASSWORD}" --data-urlencode "sc=Bel%E9p%E9s"`
+        if [ "$?" = "0" ]; then
+                states=`$SED -n -e 's:^.\+#pl_\(name\|st\)\([0-9]\+\)-->\(.\+\)</td>.*$:\2,\1,"\3":gp' <<< "$data"`
+                SOCKET_DATA=`$SED -n -e '/[0-9]\+,name/ {
+N
+/\n[0-9]\+,st/ {
+s:\([0-9]\+\),name,"\(.\+\)"\n\1,st,"\(.\+\)":\1,"\2","\L\3":gp
+}
+}' <<< "$states"`
+        else
+                echo "Could not connect to IPStecker control interface at $HOST!" >&2
+                exit 254
+        fi
+}
+
+
+print_mapping() {
+        $SED -n -e 's_\([0-9]\+\),"\(.\+\)","\(.\+\)"_\1. \2: \3_p' <<< "$SOCKET_DATA"
+}
+
+
+getbyname() {
+        namematch=`$FGREP ",\"$2\"," <<< "$SOCKET_DATA"`
+        if [ -z "$namematch" ]; then
+            namematch=`$FGREP ",\"$2" <<< "$SOCKET_DATA" | head -n 1`
+            if [ -z "$namematch" ]; then
+            		echo "Error: no socket with a name (similar to) '$2' was found." >&2
+                kill -s USR1 "$TOP_PID"
+                exit 1
+            fi
+        fi
+        
+        case "$1" in
+                'switchon')
+                        match=`$EGREP -e ",\"off( )?\"$" <<< "$namematch"`
+                        ;;
+                'switchoff')
+                        match=`$EGREP -e ",\"on( )?\"$" <<< "$namematch"`
+                        ;;
+                'flip')
+                        match="$namematch"
+                        ;;
+        esac
+        
+        if [ -z "$match" ]; then
+        		socketname=`$CUT -d\" -f 2 <<< "$namematch"`
+        		socketstate="${1##switch}"
+        		echo "Error: cannot power $socketstate socket '$socketname' because it is already switched $socketstate." >&2
+        		kill -s USR1 "$TOP_PID"
+        		exit 1
+        fi
+        
+        $CUT -d, -f 1 <<< "$match"
+}
+
+
+getbydeststate() {
+        case "$1" in
+                'switchon')
+                        match=`$EGREP -e ",\"off( )?\"$" <<< "$SOCKET_DATA"`
+                        ;;
+                'switchoff')
+                        match=`$EGREP -e ",\"on( )?\"$" <<< "$SOCKET_DATA"`
+                        ;;
+                'flip')
+                        match="$SOCKET_DATA"
+                        ;;
+        esac
+        
+        if [ -z "$match" ]; then
+        		socketstate="${1##switch}"
+        		echo "Error: cannot power $socketstate sockets because they are already switched $socketstate." >&2
+        		kill -s USR1 "$TOP_PID"
+        		exit 1
+        fi
+        
+        $CUT -d, -f 1 <<< "$match"
+}
+
+
+parselist() {
+        if [[ "$2" =~ ^([0-9]+|[0-9]+-[0-9]+)(,[0-9]+|[0-9]+-[0-9]+)*$ ]]; then
+        				lastsock=`$TAIL -n 1 <<< "$SOCKET_DATA" | $CUT -d, -f 1`
+                numbers=`$AWK -v lastsock=$lastsock 'BEGIN { RS=","; } { d=index($0, "-"); if (d!=0) { f=substr($0, 1, d-1)+0; l=substr($0, d+1)+0; for (i=f; i<=l; i+=1) { if (i>0 && i<=lastsock) { print i; } } } else { socknum=$0+0; if (socknum>0 && socknum<=lastsock) { print socknum; } } }' <<< "$2" | $SORT -n | $UNIQ`
+                
+                # none of the numbers/ranges is between 0 and $lastsock
+                if [ -z "$numbers" ]; then
+										echo "Error: invalid socket numbers and/or ranges specified." >&2
+										kill -s USR1 "$TOP_PID"
+										exit 1
+                fi
+                
+                case "$1" in
+                		'switchon')
+                        statematch=`$EGREP -e ",\"off( )?\"$" <<< "$SOCKET_DATA"`
+                        ;;
+                    'switchoff')
+                        statematch=`$EGREP -e ",\"on( )?\"$" <<< "$SOCKET_DATA"`
+                        ;;
+                    'flip')
+                        statematch="$SOCKET_DATA"
+                        ;;
+                esac
+                
+                # warn the user, that some of the specified sockets can't be turned on/off
+                if [  "$1" != "flip" ]; then
+                		socketstate="${1##switch}"
+                		list=$( while read number; do
+                    						$EGREP -qe "^$number," <<< "$statematch" || echo -n " $number," 
+                    				done <<< "$numbers" )
+                    if [ -n "$list" ]; then
+                    		echo "Warning: cannot power $socketstate sockets${list} because they are already switched $socketstate." >&2
+                    fi
+                fi
+                                
+                socketlist=$( while read number; do
+                    							$EGREP -qe "^$number," <<< "$statematch" && echo "$number"
+                    					done <<< "$numbers" )
+                # fail gracefully if all the specified sockets were of invalid state
+                if [ -z "$socketlist" ]; then
+                		socketstate="${1##switch}"
+										echo "Error: no more sockets left to switch $socketstate!" >&2
+										kill -s USR1 "$TOP_PID"
+										exit 1
+                else
+                		echo -n "$socketlist"
+                fi
+        else
+                echo "Error: invalid argument: '$2'" >&2
+                help >&2
+                kill -s USR1 "$TOP_PID"
+                exit 1
+        fi
+}
+
+
+#
+# main:
+#
+
+while getopts "H:p:h" o; do
+        case "$o" in
+                'H')
+                        HOST="$OPTARG"
+                        ARGS_TO_EXCLUDE=$(( ARGS_TO_EXCLUDE + 2 ))
+                        ;;
+                'p')
+                        PASSWORD="$OPTARG"
+                        ARGS_TO_EXCLUDE=$(( ARGS_TO_EXCLUDE + 2 ))
+                        ;;
+                'h')
+                        help
+                        exit 0
+                        ;;
+                *)
+                        echo "Error: unknown parameter: '$o'" >&2
+                        help >&2
+                        exit 255
+                        ;;
+        esac
+done
+
+[ "$ARGS_TO_EXCLUDE" -gt 0 ] && shift "$ARGS_TO_EXCLUDE"
+
+case "$1" in
+        'query')
+                map_socket
+                echo "Socket status:"
+                print_mapping
+                echo ""
+                ;;
+        'switchon'|'switchoff'|'flip')
+                command="$1"
+                map_socket
+                case "$2" in
+                        'name')
+                               SOCKET_LIST=`getbyname "$command" "$3"`
+                                ;;
+                        'all')
+                                SOCKET_LIST=`getbydeststate "$command"`
+                                ;;
+                        *)
+                                SOCKET_LIST=`parselist "$command" "$2"`
+                                ;;
+                esac
+                while read socketnum; do
+                    $CURL --silent --url 'http://socket/st_ctrl.cgi' --data-urlencode "plg${socketnum}_butt=ON%20%2F%20OFF" >/dev/null
+                done <<< "$SOCKET_LIST"
+                ;;
+        *)
+        				if [ -z "$1" ];then
+        						echo "Error: missing command." >&2
+        				else
+        						echo "Error: unknown command: '$1'" >&2
+        				fi
+                help >&2
+                exit 251
+                ;;     
+esac
+
