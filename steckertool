@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# This program was written by Janos SZIGETVARI (c) 2013.
+# This and other files related to the steckertool project may be downloaded from:
+# https://github.com/jszigetvari/steckertool or by running the command
+# git clone https://github.com/jszigetvari/steckertool
+# The files related to this project may be copied and (re)distibuted in accordance with the GNU GPL v3 license.
+
 TR=`which tr 2>/dev/null`
 AWK=`which awk 2>/dev/null`
 SED=`which sed 2>/dev/null`
