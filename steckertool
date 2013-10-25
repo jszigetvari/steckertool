@@ -6,6 +6,9 @@
 # git clone https://github.com/jszigetvari/steckertool
 # The files related to this project may be copied and (re)distibuted in accordance with the GNU GPL v3 license.
 
+PASSWORD='admin'
+HOST='192.168.0.11'
+
 TR=`which tr 2>/dev/null`
 AWK=`which awk 2>/dev/null`
 SED=`which sed 2>/dev/null`
@@ -18,8 +21,6 @@ TAIL=`which tail 2>/dev/null`
 FGREP=`which fgrep 2>/dev/null`
 EGREP=`which egrep 2>/dev/null`
 
-PASSWORD='admin'
-HOST='192.168.0.11'
 APPNAME=`basename $0`
 SOCKET_DATA=''
 ARGS_TO_EXCLUDE=0

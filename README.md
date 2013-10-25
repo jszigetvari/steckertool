@@ -9,6 +9,12 @@ The product can be purchased at: http://www.procontrol.hu
 
 The creator of this utility is not affiliated with the company in any way.
 
+Notes
+=====
+
+You may set the default hostname and password in the steckertool shell script, and that way you won't have to specify
+them as command line parameters each time you run steckertool.
+
 Usage examples
 ==============
 
