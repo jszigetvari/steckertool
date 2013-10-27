@@ -30,7 +30,7 @@ steckertool -H HOSTNAME -p PASSWORD switchon all
 Downloads
 =========
 
-The files for this project may be downloaded from http://github.com/jszigetvari/steckertool or the files may be
+The files for this project may be downloaded from https://github.com/jszigetvari/steckertool or the files may be
 cloned from git, using the following command:
-git clone http://github.com/jszigetvari/steckertool
+git clone git://github.com/jszigetvari/steckertool
 
