@@ -53,6 +53,10 @@ map_socket() {
         data=`$CURL --silent --url "http://${HOST}/login.cgi" --data-urlencode "loginpass=${PASSWORD}" --data-urlencode "sc=Bel%E9p%E9s"`
         if [ "$?" = "0" ]; then
                 states=`$SED -n -e 's:^.\+#pl_\(name\|st\)\([0-9]\+\)-->\(.\+\)</td>.*$:\2,\1,"\3":gp' <<< "$data"`
+                if [ -z "$states" ]; then
+										echo "Failed to find IPStecker control interface at \'$HOST\'! Is \'$HOST\' an IPStecker power strip?" >&2
+										exit 254
+								fi
                 SOCKET_DATA=`$SED -n -e '/[0-9]\+,name/ {
 N
 /\n[0-9]\+,st/ {
@@ -60,7 +64,7 @@ s:\([0-9]\+\),name,"\(.\+\)"\n\1,st,"\(.\+\)":\1,"\2","\L\3":gp
 }
 }' <<< "$states"`
         else
-                echo "Could not connect to IPStecker control interface at $HOST!" >&2
+                echo "Could not connect to IPStecker control interface at \'$HOST\'!" >&2
                 exit 254
         fi
 }
